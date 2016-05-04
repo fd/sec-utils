@@ -1,0 +1,48 @@
+box: simonmenke/go-build:latest
+
+build:
+  steps:
+  - setup-go-workspace
+
+  - script:
+      name: "go install"
+      code: |
+        CGO_ENABLED=0 go install -v ./cmd/...
+
+  - script:
+      name: "go test"
+      code: |
+        go test -v ./cmd/... ./pkg/...
+
+  - script:
+      name: "go build"
+      code: |
+        CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -o ${WERCKER_OUTPUT_DIR}/bin/sec-linux-amd64/sec  ./cmd/sec
+        CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o ${WERCKER_OUTPUT_DIR}/bin/sec-darwin-amd64/sec ./cmd/sec
+
+deploy:
+  steps:
+  - script:
+      name: "Push release"
+      code: |
+        install-creds
+        mkdir -p dist
+        if [[ "$WERCKER_DEPLOYTARGET_NAME" == "prerelease" ]]; then
+          VERSION="$(v5n store bump sec rc)"
+          v5n apply --commit $WERCKER_GIT_COMMIT --author "Simon Menke" bin/sec-linux-amd64/sec  "$VERSION"
+          v5n apply --commit $WERCKER_GIT_COMMIT --author "Simon Menke" bin/sec-darwin-amd64/sec "$VERSION"
+          tar -C bin/sec-linux-amd64  -f dist/sec-linux-amd64.tar.gz  -cz .
+          tar -C bin/sec-darwin-amd64 -f dist/sec-darwin-amd64.tar.gz -cz .
+          ghr -u fd -r sec-utils -c $WERCKER_GIT_COMMIT --replace --prerelease "v$VERSION" ./dist
+        else
+          VERSION="$(v5n store bump sec final+patch)"
+          v5n apply --commit $WERCKER_GIT_COMMIT --author "Simon Menke" bin/sec-linux-amd64/sec  "$VERSION"
+          v5n apply --commit $WERCKER_GIT_COMMIT --author "Simon Menke" bin/sec-darwin-amd64/sec "$VERSION"
+          tar -C bin/sec-linux-amd64  -f dist/sec-linux-amd64.tar.gz  -cz .
+          tar -C bin/sec-darwin-amd64 -f dist/sec-darwin-amd64.tar.gz -cz .
+          ghr -u fd -r sec-utils -c $WERCKER_GIT_COMMIT --replace "v$VERSION" ./dist
+        fi
+  - mbrevda/wercker-triggerbuild@0.0.10:
+      token: $WRK_TOKEN
+      application_id: $WRK_APP
+      message: Triggered from sec
